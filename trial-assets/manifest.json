@@ -1,0 +1,39 @@
+{
+  "chicago": {
+    "expectedBytes": 127827165,
+    "expectedSha256": "c72a794502bdcbc1afbed7b14c0be2a4d4fbf67c0a66f6690c3829baa2144d72",
+    "logicalFileName": "chicago.pmtiles",
+    "parts": [
+      {
+        "bytes": 47185920,
+        "name": "chicago.pmtiles.part-00",
+        "sha256": "42548fadd2a8ef634dc120ebe7be3b8a5b0015c34dbca2002d6c64a5f6b9f935"
+      },
+      {
+        "bytes": 47185920,
+        "name": "chicago.pmtiles.part-01",
+        "sha256": "754627dfacba9f85c0059a7a8c31c237502370ce0996577cfe41557a042a601b"
+      },
+      {
+        "bytes": 33455325,
+        "name": "chicago.pmtiles.part-02",
+        "sha256": "ea1f87c6cb4a3c509f818697e62eeeebea264ec0ce21f73e7200eebf90d0c116"
+      }
+    ],
+    "sourceReleaseTag": "chicaho-1"
+  },
+  "koronus": {
+    "expectedBytes": 663,
+    "expectedSha256": "c24578b17c99f11045efe852e5a268dd9e666d10a7199719cf18d9b6a3ad602c",
+    "logicalFileName": "koronus.pmtiles",
+    "parts": [
+      {
+        "bytes": 663,
+        "name": "koronus.pmtiles",
+        "sha256": "c24578b17c99f11045efe852e5a268dd9e666d10a7199719cf18d9b6a3ad602c"
+      }
+    ],
+    "sourceReleaseTag": "koronus-1"
+  },
+  "schemaVersion": 1
+}

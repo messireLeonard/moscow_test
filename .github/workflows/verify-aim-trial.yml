@@ -1,0 +1,27 @@
+name: Verify AIM Trial branch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-aim-trial.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: messireLeonard/archon-interactive-maps-trial
+          ref: feature/trial-onboarding-hardening
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: npm test

@@ -1,0 +1,94 @@
+name: Publish Trial raw map assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-trial-map-assets.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: assets/trial-map-host-v1
+          fetch-depth: 0
+
+      - name: Download verified release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf trial-assets /tmp/trial-map-assets
+          mkdir -p trial-assets /tmp/trial-map-assets/chicago /tmp/trial-map-assets/koronus
+
+          gh release download chicaho-1 --repo "$GITHUB_REPOSITORY" --pattern "chicago.pmtiles" --dir /tmp/trial-map-assets/chicago
+          gh release download koronus-1 --repo "$GITHUB_REPOSITORY" --pattern "koronus.pmtiles" --dir /tmp/trial-map-assets/koronus
+
+          test "$(stat -c%s /tmp/trial-map-assets/chicago/chicago.pmtiles)" = "127827165"
+          echo "c72a794502bdcbc1afbed7b14c0be2a4d4fbf67c0a66f6690c3829baa2144d72  /tmp/trial-map-assets/chicago/chicago.pmtiles" | sha256sum -c -
+
+          test "$(stat -c%s /tmp/trial-map-assets/koronus/koronus.pmtiles)" = "663"
+          echo "c24578b17c99f11045efe852e5a268dd9e666d10a7199719cf18d9b6a3ad602c  /tmp/trial-map-assets/koronus/koronus.pmtiles" | sha256sum -c -
+
+      - name: Build CORS-safe raw payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          split -b 45M -d -a 2 /tmp/trial-map-assets/chicago/chicago.pmtiles trial-assets/chicago.pmtiles.part-
+          cp /tmp/trial-map-assets/koronus/koronus.pmtiles trial-assets/koronus.pmtiles
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("trial-assets")
+
+          def info(path):
+              data = path.read_bytes()
+              return {"name": path.name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+          manifest = {
+              "schemaVersion": 1,
+              "chicago": {
+                  "sourceReleaseTag": "chicaho-1",
+                  "logicalFileName": "chicago.pmtiles",
+                  "expectedBytes": 127827165,
+                  "expectedSha256": "c72a794502bdcbc1afbed7b14c0be2a4d4fbf67c0a66f6690c3829baa2144d72",
+                  "parts": [info(path) for path in sorted(root.glob("chicago.pmtiles.part-*"))],
+              },
+              "koronus": {
+                  "sourceReleaseTag": "koronus-1",
+                  "logicalFileName": "koronus.pmtiles",
+                  "expectedBytes": 663,
+                  "expectedSha256": "c24578b17c99f11045efe852e5a268dd9e666d10a7199719cf18d9b6a3ad602c",
+                  "parts": [info(root / "koronus.pmtiles")],
+              },
+          }
+          (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+          test "$(find trial-assets -maxdepth 1 -name 'chicago.pmtiles.part-*' | wc -l)" = "3"
+          test "$(find trial-assets -maxdepth 1 -type f -size +50M | wc -l)" = "0"
+
+      - name: Commit immutable raw hosting payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trial-assets
+          if git diff --cached --quiet; then
+            echo "Raw assets already current."
+            exit 0
+          fi
+          git commit -m "Publish Trial raw map assets [skip ci]"
+          git push origin "HEAD:assets/trial-map-host-v1"

@@ -1,0 +1,22 @@
+{
+  "files": [
+    {
+      "bytes": 1465528,
+      "name": "immortal-empires-terrain-lod.pmtiles",
+      "sha256": "d047cc15bd0edba5a33f512489d68b2413d34c7e2fc3567c85a68fb578eb6a94"
+    },
+    {
+      "bytes": 3832084,
+      "name": "immortal-empires-vegetation.pmtiles",
+      "sha256": "bd990bdcc97b6c30e9c21970ed0bd7e3a7a86da932a808812870095b1b59bb52"
+    },
+    {
+      "bytes": 20635056,
+      "name": "immortal-empires.pmtiles",
+      "sha256": "450b71c3c317ec6490d83199bb97d0a4b2ec80498d5b313e00c1f8584e84e0eb"
+    }
+  ],
+  "schemaVersion": 1,
+  "sourceCommit": "215463d67cdd2baa6375d8339b61de84bef21f57",
+  "sourceRepository": "messireLeonard/interactive-city-map"
+}

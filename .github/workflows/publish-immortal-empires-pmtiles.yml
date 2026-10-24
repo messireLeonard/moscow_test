@@ -1,0 +1,95 @@
+name: Publish pinned Immortal Empires PMTiles
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-pinned-immortal-empires
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out public asset repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Download and verify exact private-source artifacts
+        shell: bash
+        env:
+          SOURCE_READ_TOKEN: ${{ secrets.IM_SOURCE_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SOURCE_READ_TOKEN}" ]]; then
+            echo "::error::Set repository secret IM_SOURCE_READ_TOKEN (read-only access to messireLeonard/interactive-city-map)."
+            exit 1
+          fi
+
+          SOURCE_REPO="messireLeonard/interactive-city-map"
+          SOURCE_SHA="215463d67cdd2baa6375d8339b61de84bef21f57"
+          DEST="immortal-empires/2026-10-24-canonical"
+          mkdir -p "$DEST"
+
+          fetch_verified() {
+            local name="$1"
+            local bytes="$2"
+            local sha="$3"
+            local output="$DEST/$name"
+            curl --fail --silent --show-error --location --retry 3 \
+              --header "Authorization: Bearer ${SOURCE_READ_TOKEN}" \
+              --header "Accept: application/vnd.github.raw+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${SOURCE_REPO}/contents/data/map-packages/${name}?ref=${SOURCE_SHA}" \
+              --output "$output"
+            test "$(stat -c%s "$output")" = "$bytes"
+            echo "$sha  $output" | sha256sum --check --status
+            echo "Verified: $name ($bytes bytes, SHA256 $sha)"
+          }
+
+          fetch_verified immortal-empires.pmtiles 20635056 450b71c3c317ec6490d83199bb97d0a4b2ec80498d5b313e00c1f8584e84e0eb
+          fetch_verified immortal-empires-terrain-lod.pmtiles 1465528 d047cc15bd0edba5a33f512489d68b2413d34c7e2fc3567c85a68fb578eb6a94
+          fetch_verified immortal-empires-vegetation.pmtiles 3832084 bd990bdcc97b6c30e9c21970ed0bd7e3a7a86da932a808812870095b1b59bb52
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          base = Path("immortal-empires/2026-10-24-canonical")
+          manifest = {
+              "schemaVersion": 1,
+              "sourceRepository": "messireLeonard/interactive-city-map",
+              "sourceCommit": "215463d67cdd2baa6375d8339b61de84bef21f57",
+              "files": []
+          }
+          for p in sorted(base.glob("*.pmtiles")):
+              manifest["files"].append({
+                  "name": p.name,
+                  "bytes": p.stat().st_size,
+                  "sha256": hashlib.file_digest(p.open("rb"), "sha256").hexdigest()
+              })
+          (base / "manifest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8"
+          )
+          PY
+
+      - name: Publish fully verified public assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- immortal-empires/2026-10-24-canonical/
+          if git diff --cached --quiet; then
+            echo "All pinned artifacts are already current."
+            exit 0
+          fi
+          git commit -m "Publish verified Immortal Empires canonical PMTiles [skip ci]"
+          git push origin HEAD:main
+          echo "Published immutable content under commit $(git rev-parse HEAD)"

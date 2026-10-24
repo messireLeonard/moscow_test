@@ -1,0 +1,70 @@
+name: Verify public Immortal Empires PMTiles delivery
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-immortal-empires-public-delivery.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check anonymous byte-range, CORS, size and SHA256
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import urllib.request
+
+          base = (
+              "https://raw.githubusercontent.com/messireLeonard/moscow_test/"
+              "im-canonical-20261024/immortal-empires/2026-10-24-canonical/"
+          )
+          assets = {
+              "immortal-empires.pmtiles": (
+                  20635056,
+                  "450b71c3c317ec6490d83199bb97d0a4b2ec80498d5b313e00c1f8584e84e0eb",
+              ),
+              "immortal-empires-terrain-lod.pmtiles": (
+                  1465528,
+                  "d047cc15bd0edba5a33f512489d68b2413d34c7e2fc3567c85a68fb578eb6a94",
+              ),
+              "immortal-empires-vegetation.pmtiles": (
+                  3832084,
+                  "bd990bdcc97b6c30e9c21970ed0bd7e3a7a86da932a808812870095b1b59bb52",
+              ),
+          }
+
+          for name, (expected_bytes, expected_sha) in assets.items():
+              url = base + name
+              request = urllib.request.Request(
+                  url,
+                  headers={"Range": "bytes=0-511", "Origin": "https://example.org"},
+              )
+              with urllib.request.urlopen(request, timeout=90) as response:
+                  code = response.status
+                  content_range = response.headers.get("Content-Range")
+                  cors = response.headers.get("Access-Control-Allow-Origin")
+                  assert code == 206, (name, "range HTTP", code)
+                  assert content_range == f"bytes 0-511/{expected_bytes}", (
+                      name, "content range", content_range
+                  )
+                  assert cors in ("*", "https://example.org"), (name, "CORS", cors)
+                  assert response.read()[:8] == b"PMTiles\x03", (name, "PMTiles v3 header")
+
+              with urllib.request.urlopen(url, timeout=120) as response:
+                  assert response.status == 200, (name, "full GET", response.status)
+                  data = response.read()
+              assert len(data) == expected_bytes, (name, "size", len(data), expected_bytes)
+              sha = hashlib.sha256(data).hexdigest()
+              assert sha == expected_sha, (name, "sha256", sha, expected_sha)
+              print(f"PASS {name} anonymous Range 206, CORS, size={len(data)}, SHA256={sha}")
+
+          print("PASS all three immutable public PMTiles")
+          PY

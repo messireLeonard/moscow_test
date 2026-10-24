@@ -88,8 +88,21 @@ jobs:
           git add -- immortal-empires/2026-10-24-canonical/
           if git diff --cached --quiet; then
             echo "All pinned artifacts are already current."
-            exit 0
+          else
+            git commit -m "Publish verified Immortal Empires canonical PMTiles [skip ci]"
+            git push origin HEAD:main
           fi
-          git commit -m "Publish verified Immortal Empires canonical PMTiles [skip ci]"
-          git push origin HEAD:main
-          echo "Published immutable content under commit $(git rev-parse HEAD)"
+
+          # A fixed tag is the public content identity; never move an existing tag.
+          TAG="im-canonical-20261024"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          EXISTING="$(git ls-remote --tags origin "refs/tags/$TAG" | cut -f1)"
+          if [[ -n "$EXISTING" && "$EXISTING" != "$HEAD_SHA" ]]; then
+            echo "::error::Existing $TAG does not match published commit; refusing to retag."
+            exit 1
+          fi
+          if [[ -z "$EXISTING" ]]; then
+            git tag "$TAG" "$HEAD_SHA"
+            git push origin "refs/tags/$TAG"
+          fi
+          echo "Published verified IM assets at immutable tag $TAG ($HEAD_SHA)"

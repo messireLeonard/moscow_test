@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "cities": [
+    {
+      "id": "immortal-empires",
+      "cityId": "immortal-empires",
+      "packageVersion": "2026.10.24-canonical-port-v1",
+      "dataRevision": "immortal-empires-vector-pmtiles-v3-data-lod-v3-climate-terrain-lod-v1-canonical-port-v1",
+      "profileVersion": 1,
+      "name": {
+        "ru": "Immortal Empires",
+        "en": "Immortal Empires"
+      },
+      "contentFormat": "pmtiles",
+      "pmtilesVersion": 3,
+      "sourceUrl": "https://raw.githubusercontent.com/messireLeonard/moscow_test/im-canonical-20261024/immortal-empires/2026-10-24-canonical/immortal-empires.pmtiles",
+      "logicalFileName": "immortal-empires.pmtiles",
+      "sourceFileName": "immortal-empires.pmtiles",
+      "storageFileName": "immortal-empires-20261024-450b71c3.pmtiles.glb",
+      "expectedBytes": 20635056,
+      "expectedSha256": "450b71c3c317ec6490d83199bb97d0a4b2ec80498d5b313e00c1f8584e84e0eb",
+      "profileId": "immortal-empires",
+      "seedKml": {
+        "path": "data/city-markers/immortal-empires.kml",
+        "version": 1,
+        "mode": "map-owned"
+      },
+      "companions": [
+        {
+          "role": "terrain-lod",
+          "sourceUrl": "https://raw.githubusercontent.com/messireLeonard/moscow_test/im-canonical-20261024/immortal-empires/2026-10-24-canonical/immortal-empires-terrain-lod.pmtiles",
+          "logicalFileName": "immortal-empires-terrain-lod.pmtiles",
+          "storageFileName": "immortal-empires-terrain-lod-20261024-d047cc15.pmtiles.glb",
+          "expectedBytes": 1465528,
+          "expectedSha256": "d047cc15bd0edba5a33f512489d68b2413d34c7e2fc3567c85a68fb578eb6a94"
+        },
+        {
+          "role": "vegetation",
+          "sourceUrl": "https://raw.githubusercontent.com/messireLeonard/moscow_test/im-canonical-20261024/immortal-empires/2026-10-24-canonical/immortal-empires-vegetation.pmtiles",
+          "logicalFileName": "immortal-empires-vegetation.pmtiles",
+          "storageFileName": "immortal-empires-vegetation-20261024-bd990bdc.pmtiles.glb",
+          "expectedBytes": 3832084,
+          "expectedSha256": "bd990bdcc97b6c30e9c21970ed0bd7e3a7a86da932a808812870095b1b59bb52"
+        }
+      ]
+    }
+  ]
+}

@@ -23,9 +23,9 @@ jobs:
           from pathlib import Path
           from zipfile import ZipFile,ZIP_DEFLATED,ZipInfo
           payload=json.loads(Path('koronus/v9/map-payload.json').read_text())
-          assert payload['sourceCommit']=='21e34555892b62cae78235889b4c9751aa30f07c'
+          assert payload['sourceCommit']=='69440b9d240094db9c984fe2ead272cce2944e4b'
           files={k:base64.b64decode(v,validate=False) for k,v in payload['files'].items()}
-          assert len(files)==13
+          assert len(files)==14
           for name in files:
               assert name.startswith('data/') and '..' not in Path(name).parts
               assert name.endswith(('.json','.kml','.pmtiles'))
@@ -34,16 +34,19 @@ jobs:
           assert len(pm)==city['expectedBytes']==1501
           assert hashlib.sha256(pm).hexdigest()==city['expectedSha256']
           assert pm.startswith(b'PMTiles')
-          expected={city['bundledPath'],'data/city-packages/koronus.json',city['seedKml']['path'],*city['seedKml']['additionalPaths']}
+          expected={city['bundledPath'],'data/city-packages/koronus.json','data/map-packages/koronus/vortex.json',city['seedKml']['path'],*city['seedKml']['additionalPaths']}
           assert set(files)==expected
+          resource=json.loads(files['data/map-packages/koronus/vortex.json'])
+          assert resource['schemaVersion']==1 and resource['regionMinZoom']==5
+          assert len(resource['regionAnchors'])==3 and resource['field']['bodySvg']
           for name,data in files.items():
               if name.endswith('.kml'): ET.fromstring(data)
           vortex=ET.fromstring(files['data/city-markers/koronus-screaming-vortex-v8.kml'])
           assert len(vortex.findall('.//{*}Placemark'))==37
           assert any('13th' in (p.findtext('{*}name') or '') for n,b in files.items() if n.endswith('.kml') for p in ET.fromstring(b).findall('.//{*}Placemark'))
-          provenance={'sourceCommit':payload['sourceCommit'],'scope':'Koronus map data only','requiresRuntime':'ICM V9 from the source commit; procedural storm and regional lettering are NOT contained in PMTiles','foundryRuntime':'NOT VERIFIED','files':[{'path':n,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()} for n,b in sorted(files.items())]}
+          provenance={'sourceCommit':payload['sourceCommit'],'scope':'Koronus map data only','requiresRuntime':'ICM PR #498 from the source commit; procedural storm and regional lettering are NOT contained in PMTiles','foundryRuntime':'NOT VERIFIED','files':[{'path':n,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()} for n,b in sorted(files.items())]}
           files['PROVENANCE.json']=(json.dumps(provenance,ensure_ascii=False,indent=2)+'\n').encode()
-          files['README.txt']=('Koronus V9 map data only. No Foundry module included.\nContains PMTiles base and all 11 KML files: systems, areas, routes and 38 Screaming Vortex sites.\nRequires matching ICM V9 runtime for the procedural storm, x6 parallax, close-up details and region labels at zoom >=5. These features are code in ICM, not data embedded in PMTiles.\nThe PMTiles base remains unchanged. Updating only this map archive does not install the V9 shader.\nExisting scene IDs must be preserved: use the idempotent Vortex installer already supplied with ICM V9 for adding sites. Do not blindly reimport all KML into an existing campaign.\nHistorical V9 catalogue replay currently has a JS checkpoint hash mismatch; this map-only release has been independently checked by exact data hashes and KML parsing. Foundry runtime is not verified.\n').encode()
+          files['README.txt']=('Koronus V9 map data only. No Foundry module included.\nContains PMTiles base and all 11 KML files: systems, areas, routes and 38 Screaming Vortex sites.\nRequires matching ICM PR #498 runtime for the procedural storm, x6 parallax, close-up details and region labels at zoom >=5. Authored geometry, palette, placement and labels are now data/map-packages/koronus/vortex.json; GLSL remains in ICM. Install the data tree under Data/modules/interactive-city-map/ and reload clients.\nThe PMTiles base remains unchanged. Updating only this map archive does not install the V9 shader.\nExisting scene IDs must be preserved: use the idempotent Vortex installer already supplied with ICM PR #498 for adding sites. Do not blindly reimport all KML into an existing campaign.\nHistorical V9 catalogue replay currently has a JS checkpoint hash mismatch; this map-only release has been independently checked by exact data hashes and KML parsing. Foundry runtime is not verified.\n').encode()
           out=Path('release');out.mkdir()
           (out/'koronus.pmtiles').write_bytes(pm)
           (out/'PROVENANCE.json').write_bytes(files['PROVENANCE.json'])
@@ -53,7 +56,7 @@ jobs:
                   z.writestr(info,data)
           with ZipFile(out/'koronus-v9-map.zip') as z:
               assert z.testzip() is None
-              assert len(z.namelist())==15
+              assert len(z.namelist())==16
               assert not any(n.endswith(('.mjs','module.json')) for n in z.namelist())
           (out/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(out.iterdir())))
           print((out/'SHA256SUMS.txt').read_text())
@@ -63,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=koronus-v9-20261028
+          TAG=koronus-v9-rc-20261028
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release already exists; refusing overwrite."
             exit 1
@@ -75,7 +78,7 @@ jobs:
           - koronus.pmtiles: подложка отдельно.
           - PROVENANCE.json и SHA256SUMS.txt: происхождение и контрольные суммы.
           
-          Требуется ICM V9 (исходник 21e34555892b62cae78235889b4c9751aa30f07c) для процедурного шторма, параллакса x6, деталей крупного плана и надписей регионов с zoom 5. Эти функции находятся в коде ICM и не встроены в PMTiles; архив карты не обновляет модуль.
+          Требуется ICM PR #498 (исходник 69440b9d240094db9c984fe2ead272cce2944e4b) для процедурного шторма, параллакса x6, деталей крупного плана и надписей регионов с zoom 5. Эти функции находятся в коде ICM и не встроены в PMTiles; архив карты не обновляет модуль. Добавлен vortex.json: форма, маски, профиль, палитра, привязка, подписи и порог zoom 5. Для чтения ресурса требуется совместимость из PR #498.
           
           Проверены SHA256 и размер PMTiles, XML всех KML, 38 точек Вихря, CRC ZIP и отсутствие модуля в архиве. Историческая проверка каталога V9 выявила несовпадение JS checkpoint; воспроизводимость этого каталога не заявляется. Foundry runtime не проверен.
           EOF

@@ -39,7 +39,8 @@ jobs:
           for name,data in files.items():
               if name.endswith('.kml'): ET.fromstring(data)
           vortex=ET.fromstring(files['data/city-markers/koronus-screaming-vortex-v8.kml'])
-          assert len(vortex.findall('.//{*}Placemark'))==38
+          assert len(vortex.findall('.//{*}Placemark'))==37
+          assert any('13th' in (p.findtext('{*}name') or '') for n,b in files.items() if n.endswith('.kml') for p in ET.fromstring(b).findall('.//{*}Placemark'))
           provenance={'sourceCommit':payload['sourceCommit'],'scope':'Koronus map data only','requiresRuntime':'ICM V9 from the source commit; procedural storm and regional lettering are NOT contained in PMTiles','foundryRuntime':'NOT VERIFIED','files':[{'path':n,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()} for n,b in sorted(files.items())]}
           files['PROVENANCE.json']=(json.dumps(provenance,ensure_ascii=False,indent=2)+'\n').encode()
           files['README.txt']=('Koronus V9 map data only. No Foundry module included.\nContains PMTiles base and all 11 KML files: systems, areas, routes and 38 Screaming Vortex sites.\nRequires matching ICM V9 runtime for the procedural storm, x6 parallax, close-up details and region labels at zoom >=5. These features are code in ICM, not data embedded in PMTiles.\nThe PMTiles base remains unchanged. Updating only this map archive does not install the V9 shader.\nExisting scene IDs must be preserved: use the idempotent Vortex installer already supplied with ICM V9 for adding sites. Do not blindly reimport all KML into an existing campaign.\nHistorical V9 catalogue replay currently has a JS checkpoint hash mismatch; this map-only release has been independently checked by exact data hashes and KML parsing. Foundry runtime is not verified.\n').encode()

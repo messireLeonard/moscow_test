@@ -1,0 +1,60 @@
+name: Publish Koronus V9 unified PMTiles candidate
+on:
+  push:
+    branches: [work/koronus-v9-furibundus-cloud-rc]
+    paths:
+      - .github/workflows/publish-koronus-v9-furibundus-rc.yml
+      - koronus/furibundus/v4/merge_pmtiles.py
+      - koronus/furibundus/v4/build_release.py
+      - koronus/furibundus/v4/furibundus_v4_star_center.pmtiles
+      - koronus/v9/map-payload.json
+permissions:
+  contents: write
+concurrency:
+  group: publish-koronus-v9-furibundus-unified-rc
+  cancel-in-progress: false
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Merge authoritative PMTiles and verify all original tile payloads
+        run: python3 koronus/furibundus/v4/build_release.py
+      - name: Publish immutable unified pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=koronus-v9-unified-furibundus-rc-20261109
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            expected="sha256:$(sha256sum release/koronus.pmtiles | cut -d' ' -f1)"
+            actual="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | select(.name=="koronus.pmtiles") | .digest')"
+            if [ "$actual" != "$expected" ]; then
+              echo "Existing release differs ($actual != $expected); create a NEW versioned tag."
+              exit 1
+            fi
+            echo "Existing immutable release matches SHA256; no republish needed."
+            exit 0
+          fi
+          cat > release-notes.md <<'EOF'
+          Коронус V9 и система Фрибундус (Поступь) объединены в **один** PMTiles.
+
+          - `koronus-v9-unified-map.zip`: карта с одним файлом `data/map-packages/koronus.pmtiles`, прежними KML, Вихрем, манифестом и контролем происхождения.
+          - `koronus.pmtiles`: новый объединённый PMTiles отдельно (283 тайла, zoom 0–16, 26 слоёв Фрибундуса).
+          - `PROVENANCE.json`, `SHA256SUMS.txt`: контроль исходных и итоговых данных.
+
+          Из исходного Коронуса перенесён единственный тайл без перекодирования. Все 282 тайла Фрибундуса также сохранены побайтово. Стили не дублируются; они остаются в ICM.
+
+          Требуется обновлённый **ICM PR #501**, в котором Фрибундус читает уже существующий источник `protomaps`. Старый отдельный `furibundus_v4_star_center.pmtiles` больше не нужен.
+
+          Прежние релизы не изменены. Данный архив содержит только данные карты, а не код модуля или сцену Foundry. Foundry/runtime и визуальная приёмка остаются открытыми.
+          EOF
+          gh release create "$TAG" release/* \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false \
+            --title 'Koronus V9 + Furibundus v4 — unified PMTiles' \
+            --notes-file release-notes.md
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets

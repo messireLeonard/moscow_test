@@ -4,7 +4,9 @@ on:
     branches: [work/koronus-v9-furibundus-cloud-rc]
     paths:
       - .github/workflows/publish-koronus-v9-furibundus-rc.yml
-      - koronus/furibundus/v4/**
+      - koronus/furibundus/v4/merge_pmtiles.py
+      - koronus/furibundus/v4/build_release.py
+      - koronus/furibundus/v4/furibundus_v4_star_center.pmtiles
       - koronus/v9/map-payload.json
 permissions:
   contents: write
@@ -28,8 +30,14 @@ jobs:
           set -euo pipefail
           TAG=koronus-v9-unified-furibundus-rc-20261109
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo 'Unified release already exists, refusing overwrite'
-            exit 1
+            expected="sha256:$(sha256sum release/koronus.pmtiles | cut -d' ' -f1)"
+            actual="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | select(.name=="koronus.pmtiles") | .digest')"
+            if [ "$actual" != "$expected" ]; then
+              echo "Existing release differs ($actual != $expected); create a NEW versioned tag."
+              exit 1
+            fi
+            echo "Existing immutable release matches SHA256; no republish needed."
+            exit 0
           fi
           cat > release-notes.md <<'EOF'
           Коронус V9 и система Фрибундус (Поступь) объединены в **один** PMTiles.

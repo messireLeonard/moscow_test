@@ -1,4 +1,4 @@
-name: Publish Koronus V9 + Furibundus v4 map-only candidate
+name: Publish Koronus V9 unified PMTiles candidate
 on:
   push:
     branches: [work/koronus-v9-furibundus-cloud-rc]
@@ -9,43 +9,44 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: publish-koronus-v9-furibundus-rc
+  group: publish-koronus-v9-furibundus-unified-rc
   cancel-in-progress: false
 jobs:
-  package-and-publish:
+  build-and-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Verify existing V9 inputs and new Furibundus PMTiles; build additive map package
+      - name: Merge authoritative PMTiles and verify all original tile payloads
         run: python3 koronus/furibundus/v4/build_release.py
-      - name: Publish independent pre-release without replacing existing V9
+      - name: Publish immutable unified pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=koronus-v9-furibundus-rc-20261108
+          TAG=koronus-v9-unified-furibundus-rc-20261109
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Candidate release already exists; refusing overwrite."
+            echo 'Unified release already exists, refusing overwrite'
             exit 1
           fi
           cat > release-notes.md <<'EOF'
-          Koronus V9 + Furibundus v4: отдельный экспериментальный архив данных карты (без модуля Foundry и без отдельных стилей).
+          Коронус V9 и система Фрибундус (Поступь) объединены в **один** PMTiles.
 
-          - `koronus-v9-furibundus-map.zip`: прежние 15 исходных файлов Коронуса V9 без изменений плюс `data/map-packages/koronus/furibundus_v4_star_center.pmtiles`.
-          - `koronus.pmtiles`: неизменённая основа Коронуса, отдельно.
-          - `furibundus_v4_star_center.pmtiles`: новый дополнительный векторный ресурс, отдельно.
-          - `PROVENANCE.json`, `SHA256SUMS.txt`: версии, ограничения, контрольные суммы.
+          - `koronus-v9-unified-map.zip`: карта с одним файлом `data/map-packages/koronus.pmtiles`, прежними KML, Вихрем, манифестом и контролем происхождения.
+          - `koronus.pmtiles`: новый объединённый PMTiles отдельно (283 тайла, zoom 0–16, 26 слоёв Фрибундуса).
+          - `PROVENANCE.json`, `SHA256SUMS.txt`: контроль исходных и итоговых данных.
 
-          **Требуется ICM PR #501** (проверенный SHA `cdacec0e072801c213c3460b0fe05901aec1b7fe` или совместимый преемник) для LOD, единого zoom-порога 11, скрытия глобальной метки и локальной обрезки маршрутов. Отдельный стилевой JSON не используется.
+          Из исходного Коронуса перенесён единственный тайл без перекодирования. Все 282 тайла Фрибундуса также сохранены побайтово. Стили не дублируются; они остаются в ICM.
 
-          Исходный `koronus-v9-locations-20261030` сохраняется; это новая предрелизная версия. Масштаб Фрибундуса пока проектный. Foundry/runtime и визуальная приёмка не выполнены. ZIP не заменяет модуль, не импортирует сцену и не меняет сохранённые маркеры/маршруты.
+          Требуется обновлённый **ICM PR #501**, в котором Фрибундус читает уже существующий источник `protomaps`. Старый отдельный `furibundus_v4_star_center.pmtiles` больше не нужен.
+
+          Прежние релизы не изменены. Данный архив содержит только данные карты, а не код модуля или сцену Foundry. Foundry/runtime и визуальная приёмка остаются открытыми.
           EOF
           gh release create "$TAG" release/* \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --prerelease --latest=false \
-            --title "Koronus V9 + Furibundus v4 — map data candidate" \
+            --title 'Koronus V9 + Furibundus v4 — unified PMTiles' \
             --notes-file release-notes.md
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets

@@ -27,6 +27,14 @@ jobs:
           persist-credentials: false
       - name: Test source PMTiles, companion directory and Chicago chunk reconstruction
         run: python3 -m unittest discover -s tests -p test_koronus_downloadable.py -v
+      - name: Check Windows one-time transfer script syntax
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/transfer_koronus_source_to_moscow_test.ps1'),[ref]$tokens,[ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+
 
   prepare-source-release:
     # Explicit opt-in. Creates an empty public-repo DRAFT release for manual

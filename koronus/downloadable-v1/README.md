@@ -40,7 +40,13 @@ This follows Chicago's exact separation of **source Release → parts hosting**.
    `python3 tools/build_koronus_downloadable.py <path-to-full-icm-rc.zip> --source-only --out <source-output>`
    It creates `koronus.pmtiles`, `koronus-resources.pmtiles`,
    `SOURCE_PROVENANCE.json` and `SHA256SUMS.txt`.
-2. A separate **draft source Release** in `moscow_test`, tag
+2. Run `pwsh -File tools/transfer_koronus_source_to_moscow_test.ps1` from
+   this repository checkout on a machine with `gh auth login` already
+   authorized for both repos. The script downloads from private ICM,
+   checks all four expected file sizes and SHA256, checks the provenance,
+   uploads only the verified files to the empty public draft, validates
+   remote size and publishes it. **No new GitHub token or Actions secret.**
+   A separate **draft source Release** in `moscow_test`, tag
    `koronus-downloadable-v1-src`, receives **only those four output files**.
    This transfer is one-time, by the repository owner, just like the first
    Chicago source PMTiles. Do not copy the ICM ZIP to the public repo.

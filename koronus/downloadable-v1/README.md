@@ -79,3 +79,5 @@ and resource companion PMTiles. SoI resource lookup must use companion PMTiles
 Until this integration passes Foundry testing, continue using the complete
 `v0.2.140-rc.1` when SoI detail is required. Do not promote the core-only
 preview as a complete replacement.
+
+Private ICM staging is implemented in branch `work/koronus-source-pmtiles-bootstrap-v1`, workflow `stage-koronus-source-pmtiles-v1.yml`. Its output is a private, non-production source-transfer release; it does not give the public workflow access to the private repository.

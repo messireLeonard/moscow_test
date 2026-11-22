@@ -87,3 +87,14 @@ Until this integration passes Foundry testing, continue using the complete
 preview as a complete replacement.
 
 Private ICM staging is implemented in branch `work/koronus-source-pmtiles-bootstrap-v1`, workflow `stage-koronus-source-pmtiles-v1.yml`. Its output is a private, non-production source-transfer release; it does not give the public workflow access to the private repository.
+
+## Verified source Release — 2026-11-22
+
+The immutable input Release `koronus-downloadable-v1-src` in this repository is published. All four release assets have been compared against the original private ICM source-transfer release and **their GitHub-reported sizes and SHA-256 digests match exactly**:
+
+- `koronus.pmtiles`: 1,964,280 bytes; SHA-256 `d94f0ac84c187fc43711674a68a6bd376013e7bbc1d6086c27ecc603420a7dc7`.
+- `koronus-resources.pmtiles`: 119,589,679 bytes; SHA-256 `523b9700d25097fafc68481d573a4022acf74fa9f1efb6d818041e8aaaf1c18a`.
+- `SHA256SUMS.txt`: 266 bytes; SHA-256 `494f9eb5cfaa686db75a2f61d7cf6f7cfe626b46be02d3d3469dc8d4e0841d12`.
+- `SOURCE_PROVENANCE.json`: 670 bytes; SHA-256 `f26a5c7dfd85936d9dc2e9c2572ee829a9b723f83e30fd8e36f22c38132470cd`.
+
+A commit with the `publish(koronus):` prefix triggers real-source CI validation and creates the immutable segmented hosting branch if all checks pass. This does not merge the PR or modify the ICM production runtime.

@@ -1,4 +1,5 @@
-name: Verify Koronus PMTiles, split like Chicago
+name: Verify and host Koronus PMTiles like Chicago
+
 on:
   push:
     branches: [work/koronus-downloadable-pmtiles-v1]
@@ -7,9 +8,14 @@ on:
       - 'tools/build_koronus_downloadable.py'
       - 'tests/test_koronus_downloadable.py'
       - 'koronus/downloadable-v1/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: verify-koronus-downloadable-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -19,14 +25,53 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Verify PMTiles metadata, payload SHA and Chicago-like chunk reassembly
+      - name: Test source PMTiles, companion directory and Chicago chunk reconstruction
         run: python3 -m unittest discover -s tests -p test_koronus_downloadable.py -v
 
-  # This publishing step is intentionally NOT triggered by a normal PR push.
-  # A commit with "publish(koronus):" is an explicit, auditable opt-in.
-  # The public repo token cannot read the private ICM release. Configure a
-  # read-only ICM_SOURCE_READ_TOKEN secret before publishing map resources.
+  prepare-source-release:
+    # Explicit opt-in. Creates an empty public-repo DRAFT release for manual
+    # transfer of two PMTiles, NOT the private ICM ZIP. No extra secret.
+    if: startsWith(github.event.head_commit.message, 'bootstrap(koronus):')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Prepare source release draft in moscow_test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='koronus-downloadable-v1-src'
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Source release already exists; refusing overwrite"
+            exit 1
+          fi
+          cat > /tmp/koronus-source-notes.md <<'EOF'
+          Chicago-style Koronus source PMTiles for external map delivery.
+
+          DRAFT until exactly these four verified files are transferred from
+          the private ICM source staging release:
+          - koronus.pmtiles
+          - koronus-resources.pmtiles
+          - SOURCE_PROVENANCE.json
+          - SHA256SUMS.txt
+
+          The original 129 MB ICM module ZIP must NOT be uploaded here.
+          After these four files are present and SHA256SUMS is checked, publish
+          this source release. A later explicit publish(koronus): commit will
+          verify the source release and publish 45 MiB parts to an immutable
+          public assets branch. No personal access token is needed.
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --draft \
+            --title 'Koronus v1 — source PMTiles for Chicago-style split (DRAFT)' \
+            --notes-file /tmp/koronus-source-notes.md
+
   publish:
+    # Only triggered after the source PMTiles were uploaded to moscow_test's
+    # own release and a dedicated publish(koronus): commit is pushed.
     if: startsWith(github.event.head_commit.message, 'publish(koronus):')
     needs: test
     runs-on: ubuntu-latest
@@ -38,51 +83,48 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Verify access to private ICM source release
+      - name: Read source PMTiles from moscow_test Releases (no cross-repository token)
         env:
-          ICM_SOURCE_READ_TOKEN: ${{ secrets.ICM_SOURCE_READ_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$ICM_SOURCE_READ_TOKEN" ]]; then
-            echo "::error::Configure read-only ICM_SOURCE_READ_TOKEN to access the private ICM release"
+          TAG='koronus-downloadable-v1-src'
+          if [[ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != 'false' ]]; then
+            echo '::error::Publish the four verified source files from the draft release first'
             exit 1
           fi
-      - name: Download SHA-pinned release from private ICM
-        env:
-          GH_TOKEN: ${{ secrets.ICM_SOURCE_READ_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
           mkdir -p source
-          gh release download v0.2.140-rc.1 \
-            --repo messireLeonard/interactive-city-map \
-            --pattern 'interactive-city-map-v0.2.140-rc.1.zip' --dir source
-          test "$(stat -c%s source/interactive-city-map-v0.2.140-rc.1.zip)" = 129347313
-          echo '43e436b6325eceee2dcb75a59e9385ac0535393747f2e75382a6af19aefcf0b2  source/interactive-city-map-v0.2.140-rc.1.zip' | sha256sum -c -
-      - name: Generate verified Koronus and SoI resource PMTiles chunks
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir source
+          test "$(find source -maxdepth 1 -type f | wc -l)" -eq 4
+          (cd source && sha256sum -c SHA256SUMS.txt)
+      - name: Verify source PMTiles, provenance and split chunks
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/build_koronus_downloadable.py source/interactive-city-map-v0.2.140-rc.1.zip --out dist/koronus-v1
+          python3 tools/build_koronus_downloadable.py \
+            --from-source-release source --out dist/koronus-v1
           (cd dist/koronus-v1 && sha256sum -c SHA256SUMS.txt)
           python3 - <<'PY'
           import json
           from pathlib import Path
           root=Path('dist/koronus-v1')
           m=json.loads((root/'manifest.json').read_text())
+          assert m['sourcePMTilesRelease']=='koronus-downloadable-v1-src'
           assert m['koronus']['expectedBytes']==1964280
           assert m['koronus']['expectedSha256']=='d94f0ac84c187fc43711674a68a6bd376013e7bbc1d6086c27ecc603420a7dc7'
           assert m['koronusResources']['expectedBytes']>100000000
-          assert all(part['bytes']<=45*1024*1024 for k in ('koronus','koronusResources') for part in m[k]['parts'])
+          assert all(p['bytes']<=45*1024*1024
+                     for k in ('koronus','koronusResources') for p in m[k]['parts'])
+          assert m['requiresICMCompanionLoader'] is True
           PY
-      - name: Publish immutable chunk hosting branch in moscow_test
+      - name: Publish immutable raw chunks like Chicago
         shell: bash
         run: |
           set -euo pipefail
           DEST='assets/koronus-downloadable-v1'
           if git ls-remote --heads origin "refs/heads/$DEST" | grep -q .; then
-            echo "::error::Immutable Koronus chunk hosting branch exists; refusing overwrite"
+            echo "::error::Immutable Koronus hosting branch exists; refusing overwrite"
             exit 1
           fi
           git switch -c "$DEST"
@@ -91,5 +133,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- hosted-assets/koronus-v1/
-          git commit -m 'Publish SHA-pinned downloadable Koronus PMTiles parts [skip ci]'
+          git commit -m 'Publish verified Koronus PMTiles chunks [skip ci]'
           git push origin "HEAD:refs/heads/$DEST"

@@ -1,0 +1,51 @@
+{
+  "koronus": {
+    "expectedBytes": 1964280,
+    "expectedSha256": "d94f0ac84c187fc43711674a68a6bd376013e7bbc1d6086c27ecc603420a7dc7",
+    "logicalFileName": "koronus.pmtiles",
+    "parts": [
+      {
+        "bytes": 1964280,
+        "name": "koronus.pmtiles.part-00",
+        "sha256": "d94f0ac84c187fc43711674a68a6bd376013e7bbc1d6086c27ecc603420a7dc7"
+      }
+    ]
+  },
+  "koronusResources": {
+    "expectedBytes": 119589679,
+    "expectedSha256": "523b9700d25097fafc68481d573a4022acf74fa9f1efb6d818041e8aaaf1c18a",
+    "logicalFileName": "koronus-resources.pmtiles",
+    "parts": [
+      {
+        "bytes": 47185920,
+        "name": "koronus-resources.pmtiles.part-00",
+        "sha256": "34ad24812d37e0ac237999c4bcac3910ef18070150898bb9ea2bd7b9072cc3f8"
+      },
+      {
+        "bytes": 47185920,
+        "name": "koronus-resources.pmtiles.part-01",
+        "sha256": "92d90df03de5d73ee4c0b7aec89c360723d8e4b75bb7b7ad5bf19dae63ee53d4"
+      },
+      {
+        "bytes": 25217839,
+        "name": "koronus-resources.pmtiles.part-02",
+        "sha256": "dba6c7a5539df0209bcafcd1e460dac6d877ae9d610940fdd5eb7046fe883c2a"
+      }
+    ]
+  },
+  "packageVersion": "2026.11.22-koronus-downloadable-v1",
+  "rawBaseUrl": "https://raw.githubusercontent.com/messireLeonard/moscow_test/assets/koronus-downloadable-v1/hosted-assets/koronus-v1/",
+  "requiresICMCompanionLoader": true,
+  "resources": {
+    "count": 569,
+    "format": "PMTiles v3 binary virtual-tile index",
+    "rawBytes": 119550244
+  },
+  "role": "external-map-assets",
+  "schemaVersion": 1,
+  "sourceArchiveSha256": "43e436b6325eceee2dcb75a59e9385ac0535393747f2e75382a6af19aefcf0b2",
+  "sourceCommit": "2f7413498af25161e765ec803073261b880ab229",
+  "sourcePMTilesRelease": "koronus-downloadable-v1-src",
+  "sourceRepository": "messireLeonard/interactive-city-map",
+  "sourceTag": "v0.2.140-rc.1"
+}

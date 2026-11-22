@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/verify-koronus-downloadable-v1.yml'
       - 'tools/build_koronus_downloadable.py'
+      - 'tools/transfer_koronus_source_to_moscow_test.ps1'
       - 'tests/test_koronus_downloadable.py'
       - 'koronus/downloadable-v1/**'
   workflow_dispatch:

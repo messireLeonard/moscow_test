@@ -1,0 +1,146 @@
+name: Verify and host Koronus PMTiles like Chicago
+
+on:
+  push:
+    branches: [work/koronus-downloadable-pmtiles-v1]
+    paths:
+      - '.github/workflows/verify-koronus-downloadable-v1.yml'
+      - 'tools/build_koronus_downloadable.py'
+      - 'tools/transfer_koronus_source_to_moscow_test.ps1'
+      - 'tests/test_koronus_downloadable.py'
+      - 'koronus/downloadable-v1/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-koronus-downloadable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test source PMTiles, companion directory and Chicago chunk reconstruction
+        run: python3 -m unittest discover -s tests -p test_koronus_downloadable.py -v
+      - name: Check Windows one-time transfer script syntax
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/transfer_koronus_source_to_moscow_test.ps1'),[ref]$tokens,[ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+
+
+  prepare-source-release:
+    # Explicit opt-in. Creates an empty public-repo DRAFT release for manual
+    # transfer of two PMTiles, NOT the private ICM ZIP. No extra secret.
+    if: startsWith(github.event.head_commit.message, 'bootstrap(koronus):')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Prepare source release draft in moscow_test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='koronus-downloadable-v1-src'
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Source release already exists; refusing overwrite"
+            exit 1
+          fi
+          cat > /tmp/koronus-source-notes.md <<'EOF'
+          Chicago-style Koronus source PMTiles for external map delivery.
+
+          DRAFT until exactly these four verified files are transferred from
+          the private ICM source staging release:
+          - koronus.pmtiles
+          - koronus-resources.pmtiles
+          - SOURCE_PROVENANCE.json
+          - SHA256SUMS.txt
+
+          The original 129 MB ICM module ZIP must NOT be uploaded here.
+          After these four files are present and SHA256SUMS is checked, publish
+          this source release. A later explicit publish(koronus): commit will
+          verify the source release and publish 45 MiB parts to an immutable
+          public assets branch. No personal access token is needed.
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --draft \
+            --title 'Koronus v1 — source PMTiles for Chicago-style split (DRAFT)' \
+            --notes-file /tmp/koronus-source-notes.md
+
+  publish:
+    # Only triggered after the source PMTiles were uploaded to moscow_test's
+    # own release and a dedicated publish(koronus): commit is pushed.
+    if: startsWith(github.event.head_commit.message, 'publish(koronus):')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Read source PMTiles from moscow_test Releases (no cross-repository token)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='koronus-downloadable-v1-src'
+          if [[ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != 'false' ]]; then
+            echo '::error::Publish the four verified source files from the draft release first'
+            exit 1
+          fi
+          mkdir -p source
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir source
+          test "$(find source -maxdepth 1 -type f | wc -l)" -eq 4
+          (cd source && sha256sum -c SHA256SUMS.txt)
+      - name: Verify source PMTiles, provenance and split chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/build_koronus_downloadable.py \
+            --from-source-release source --out dist/koronus-v1
+          (cd dist/koronus-v1 && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('dist/koronus-v1')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['sourcePMTilesRelease']=='koronus-downloadable-v1-src'
+          assert m['koronus']['expectedBytes']==1964280
+          assert m['koronus']['expectedSha256']=='d94f0ac84c187fc43711674a68a6bd376013e7bbc1d6086c27ecc603420a7dc7'
+          assert m['koronusResources']['expectedBytes']>100000000
+          assert all(p['bytes']<=45*1024*1024
+                     for k in ('koronus','koronusResources') for p in m[k]['parts'])
+          assert m['requiresICMCompanionLoader'] is True
+          PY
+      - name: Publish immutable raw chunks like Chicago
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST='assets/koronus-downloadable-v1'
+          if git ls-remote --heads origin "refs/heads/$DEST" | grep -q .; then
+            echo "::error::Immutable Koronus hosting branch exists; refusing overwrite"
+            exit 1
+          fi
+          git switch -c "$DEST"
+          mkdir -p hosted-assets/koronus-v1
+          cp dist/koronus-v1/* hosted-assets/koronus-v1/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- hosted-assets/koronus-v1/
+          git commit -m 'Publish verified Koronus PMTiles chunks [skip ci]'
+          git push origin "HEAD:refs/heads/$DEST"

@@ -310,7 +310,7 @@ def build(source, out, expected_size=SOURCE_BYTES, expected_sha=SOURCE_SHA,
     if verify_parts(out, map_info) != base or verify_parts(out, res_info) != packed:
         raise ValueError("Chunk reassembly corrupted the authoritative bytes")
     lines = []
-    for filename in sorted(x.name for x in out.iterdir() if x.is_file()):
+    for filename in sorted(x.name for x in out.iterdir() if x.is_file() and x.name != "SHA256SUMS.txt"):
         lines.append(sha((out / filename).read_bytes()) + "  " + filename + "\n")
     (out / "SHA256SUMS.txt").write_text("".join(lines), encoding="utf-8")
     return payload

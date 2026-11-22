@@ -40,7 +40,7 @@ This follows Chicago's exact separation of **source Release → parts hosting**.
    `python3 tools/build_koronus_downloadable.py <path-to-full-icm-rc.zip> --source-only --out <source-output>`
    It creates `koronus.pmtiles`, `koronus-resources.pmtiles`,
    `SOURCE_PROVENANCE.json` and `SHA256SUMS.txt`.
-2. Run `pwsh -File tools/transfer_koronus_source_to_moscow_test.ps1` from
+2. Run `powershell -NoProfile -ExecutionPolicy Bypass -File tools/transfer_koronus_source_to_moscow_test.ps1` (Windows built-in PowerShell) from
    this repository checkout on a machine with `gh auth login` already
    authorized for both repos. The script downloads from private ICM,
    checks all four expected file sizes and SHA256, checks the provenance,

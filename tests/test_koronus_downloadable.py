@@ -80,7 +80,7 @@ class KoronusChunkTests(unittest.TestCase):
 
     def test_pinned_source_hash_and_missing_assets_rejected(self):
         with self.assertRaisesRegex(ValueError, "source release SHA mismatch"):
-            read_release(self.source, **{**self.kwargs(), "expected_sha": "0"*64})
+            read_release(self.source, **{**{k: v for k, v in self.kwargs().items() if k != "part_size"}, "expected_sha": "0"*64})
         self.repack(omit=("data/soi/canonical-v1/manifest.json",))
         with self.assertRaisesRegex(ValueError, "Missing source resources"):
             build(self.source, self.root / "bad", **self.kwargs())

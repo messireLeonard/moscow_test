@@ -1,0 +1,95 @@
+name: Verify Koronus PMTiles, split like Chicago
+on:
+  push:
+    branches: [work/koronus-downloadable-pmtiles-v1]
+    paths:
+      - '.github/workflows/verify-koronus-downloadable-v1.yml'
+      - 'tools/build_koronus_downloadable.py'
+      - 'tests/test_koronus_downloadable.py'
+      - 'koronus/downloadable-v1/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify PMTiles metadata, payload SHA and Chicago-like chunk reassembly
+        run: python3 -m unittest discover -s tests -p test_koronus_downloadable.py -v
+
+  # This publishing step is intentionally NOT triggered by a normal PR push.
+  # A commit with "publish(koronus):" is an explicit, auditable opt-in.
+  # The public repo token cannot read the private ICM release. Configure a
+  # read-only ICM_SOURCE_READ_TOKEN secret before publishing map resources.
+  publish:
+    if: startsWith(github.event.head_commit.message, 'publish(koronus):')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify access to private ICM source release
+        env:
+          ICM_SOURCE_READ_TOKEN: ${{ secrets.ICM_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$ICM_SOURCE_READ_TOKEN" ]]; then
+            echo "::error::Configure read-only ICM_SOURCE_READ_TOKEN to access the private ICM release"
+            exit 1
+          fi
+      - name: Download SHA-pinned release from private ICM
+        env:
+          GH_TOKEN: ${{ secrets.ICM_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          gh release download v0.2.140-rc.1 \
+            --repo messireLeonard/interactive-city-map \
+            --pattern 'interactive-city-map-v0.2.140-rc.1.zip' --dir source
+          test "$(stat -c%s source/interactive-city-map-v0.2.140-rc.1.zip)" = 129347313
+          echo '43e436b6325eceee2dcb75a59e9385ac0535393747f2e75382a6af19aefcf0b2  source/interactive-city-map-v0.2.140-rc.1.zip' | sha256sum -c -
+      - name: Generate verified Koronus and SoI resource PMTiles chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/build_koronus_downloadable.py source/interactive-city-map-v0.2.140-rc.1.zip --out dist/koronus-v1
+          (cd dist/koronus-v1 && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('dist/koronus-v1')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['koronus']['expectedBytes']==1964280
+          assert m['koronus']['expectedSha256']=='d94f0ac84c187fc43711674a68a6bd376013e7bbc1d6086c27ecc603420a7dc7'
+          assert m['koronusResources']['expectedBytes']>100000000
+          assert all(part['bytes']<=45*1024*1024 for k in ('koronus','koronusResources') for part in m[k]['parts'])
+          PY
+      - name: Publish immutable chunk hosting branch in moscow_test
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST='assets/koronus-downloadable-v1'
+          if git ls-remote --heads origin "refs/heads/$DEST" | grep -q .; then
+            echo "::error::Immutable Koronus chunk hosting branch exists; refusing overwrite"
+            exit 1
+          fi
+          git switch -c "$DEST"
+          mkdir -p hosted-assets/koronus-v1
+          cp dist/koronus-v1/* hosted-assets/koronus-v1/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- hosted-assets/koronus-v1/
+          git commit -m 'Publish SHA-pinned downloadable Koronus PMTiles parts [skip ci]'
+          git push origin "HEAD:refs/heads/$DEST"

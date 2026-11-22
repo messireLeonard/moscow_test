@@ -34,7 +34,7 @@ function Invoke-Gh([string[]]$Argv) {
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   throw "GitHub CLI 'gh' not found. Install/authenticate it before running the one-time transfer."
 }
-Invoke-Gh @("auth", "status", "--hostname", "github.com")
+Invoke-Gh -Argv @("auth", "status", "--hostname", "github.com")
 $destination = (& gh release view $DestinationTag --repo $publicRepo --json isDraft,assets | ConvertFrom-Json)
 if ($LASTEXITCODE -ne 0 -or $null -eq $destination) { throw "Expected moscow_test source draft does not exist" }
 if ($destination.isDraft -ne $true -or $destination.assets.Count -ne 0) {
@@ -44,7 +44,7 @@ $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("icm-koronus-transfer-
 [void](New-Item -ItemType Directory -Path $temporary)
 try {
   Write-Host "Downloading four source assets from private ICM release..."
-  Invoke-Gh @("release", "download", $sourceTag, "--repo", $privateRepo, "--dir", $temporary)
+  Invoke-Gh -Argv @("release", "download", $sourceTag, "--repo", $privateRepo, "--dir", $temporary)
   $found = @(Get-ChildItem -LiteralPath $temporary -File)
   if ($found.Count -ne 4 -or @($found | Where-Object { -not $expected.Contains($_.Name) }).Count -gt 0) {
     throw "Unexpected files in the private source-transfer release"
@@ -68,7 +68,7 @@ try {
   Write-Host "Uploading verified PMTiles to the moscow_test source draft..."
   $uploadArgs = @("release","upload",$DestinationTag,"--repo",$publicRepo)
   foreach ($name in $expected.Keys) { $uploadArgs += (Join-Path $temporary $name) }
-  Invoke-Gh $uploadArgs
+  Invoke-Gh -Argv $uploadArgs
   $uploaded = (& gh release view $DestinationTag --repo $publicRepo --json isDraft,assets | ConvertFrom-Json)
   if ($LASTEXITCODE -ne 0 -or $uploaded.isDraft -ne $true -or $uploaded.assets.Count -ne 4) {
     throw "Unexpected public draft asset inventory after upload"
@@ -79,7 +79,7 @@ try {
     }
   }
   Write-Host "Four source files are verified and present. Publishing the source release..."
-  Invoke-Gh @("release", "edit", $DestinationTag, "--repo", $publicRepo, "--draft=false", "--prerelease")
+  Invoke-Gh -Argv @("release", "edit", $DestinationTag, "--repo", $publicRepo, "--draft=false", "--prerelease")
   Write-Host "Source release published. Splitter is prepared; an explicit publish(koronus): commit starts the immutable chunk publication."
 } finally {
   Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue

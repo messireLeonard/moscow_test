@@ -20,6 +20,8 @@ SOURCE_SHA = "43e436b6325eceee2dcb75a59e9385ac0535393747f2e75382a6af19aefcf0b2"
 BASE_VECTOR = "data/map-packages/koronus.pmtiles"
 VECTOR_SIZE = 1964280
 VECTOR_SHA = "d94f0ac84c187fc43711674a68a6bd376013e7bbc1d6086c27ecc603420a7dc7"
+SOURCE_RELEASE_TAG = "koronus-downloadable-v1-src"
+SOURCE_PROVENANCE_NAME = "SOURCE_PROVENANCE.json"
 PART_SIZE = 45 * 1024 * 1024
 VIRTUAL_Z = 12
 PREFIX = "interactive-city-map/"
@@ -204,7 +206,7 @@ def build_asset_pmtiles(files, source_sha=SOURCE_SHA, vector_sha=VECTOR_SHA):
     return bytes(header) + directory + metadata + tile_data
 
 
-def verify_asset_pmtiles(raw, files):
+def verify_asset_pmtiles(raw, files=None):
     if len(raw) < 127 or raw[:8] != b"PMTiles\x03":
         raise ValueError("Bad resource PMTiles magic")
     positions = [struct.unpack_from("<Q", raw, i)[0] for i in range(8, 96, 8)]
@@ -216,12 +218,16 @@ def verify_asset_pmtiles(raw, files):
     if raw[96:102] != bytes((1, 2, 1, 0, VIRTUAL_Z, VIRTUAL_Z)):
         raise ValueError("Incorrect PMTiles header flags")
     meta_json = json.loads(gzip.decompress(raw[meta:meta + mlen]))
-    if meta_json.get("kind") != "icm-koronus-binary-resources" or set(meta_json["assets"]) != set(files):
+    if (meta_json.get("schemaVersion") != 1 or
+            meta_json.get("kind") != "icm-koronus-binary-resources" or
+            not isinstance(meta_json.get("assets"), dict) or
+            not 1 <= len(meta_json["assets"]) <= MAX_RESOURCES or
+            (files is not None and set(meta_json["assets"]) != set(files))):
         raise ValueError("Resource index differs from source")
     directory = gzip.decompress(raw[root:root + rlen])
     p = 0
     n, p = unvarint(directory, p)
-    if n != count:
+    if n != count or n != len(meta_json["assets"]):
         raise ValueError("Directory entry count mismatch")
     ids, current = [], 0
     for _ in range(n):
@@ -240,12 +246,157 @@ def verify_asset_pmtiles(raw, files):
         raise ValueError("Corrupt resource directory")
     decoded = {tid: raw[tile + offset:tile + offset + length]
                for tid, offset, length in zip(ids, offsets, lengths)}
-    for path, content in files.items():
-        desc = meta_json["assets"][path]
-        data = decoded[tileid(desc["z"], desc["x"], desc["y"])]
-        if data != content or sha(data) != desc["sha256"] or len(data) != desc["bytes"]:
-            raise ValueError("Resource byte/hash roundtrip failed: " + path)
+    mapped_ids = set()
+    for file_path, desc in meta_json["assets"].items():
+        if not map_owned(file_path) or ".." in PurePosixPath(file_path).parts or "\\" in file_path:
+            raise ValueError("Unsafe companion resource path: " + file_path)
+        if not isinstance(desc, dict) or desc.get("z") != VIRTUAL_Z or desc.get("y") != 0:
+            raise ValueError("Invalid resource tile locator: " + file_path)
+        if not isinstance(desc.get("x"), int) or not 0 <= desc["x"] < n:
+            raise ValueError("Invalid resource tile x: " + file_path)
+        tid = tileid(desc["z"], desc["x"], desc["y"])
+        if tid in mapped_ids or tid not in decoded:
+            raise ValueError("Duplicate or missing resource tile: " + file_path)
+        mapped_ids.add(tid)
+        data = decoded[tid]
+        if not data or sha(data) != desc.get("sha256") or len(data) != desc.get("bytes"):
+            raise ValueError("Resource byte/hash roundtrip failed: " + file_path)
+        if files is not None and data != files[file_path]:
+            raise ValueError("Resource payload differs from source: " + file_path)
+    if mapped_ids != set(decoded) or not set(REQUIRED).issubset(meta_json["assets"]):
+        raise ValueError("Companion PMTiles missing required or contains unmapped resources")
     return meta_json
+
+
+
+def source_record(logical_name, data):
+    return {"name": logical_name, "bytes": len(data), "sha256": sha(data)}
+
+
+def stage_source(source, out, expected_size=SOURCE_BYTES, expected_sha=SOURCE_SHA,
+                 vector_size=VECTOR_SIZE, vector_sha=VECTOR_SHA):
+    """Stage only two real PMTiles and their provenance for one-time upload.
+
+    Never place the private ICM ZIP or developer source tree in the public repo.
+    """
+    vector, assets = read_release(source, expected_size, expected_sha, vector_size, vector_sha)
+    resources = build_asset_pmtiles(assets, source_sha=expected_sha, vector_sha=vector_sha)
+    verify_asset_pmtiles(resources, assets)
+    out.mkdir(parents=True, exist_ok=True)
+    paths = {"koronus": out / "koronus.pmtiles",
+             "koronusResources": out / "koronus-resources.pmtiles"}
+    paths["koronus"].write_bytes(vector)
+    paths["koronusResources"].write_bytes(resources)
+    provenance = {
+        "schemaVersion": 1,
+        "kind": "icm-koronus-source-pmtiles",
+        "sourceTag": SOURCE_TAG,
+        "sourceCommit": SOURCE_COMMIT,
+        "sourceArchiveBytes": expected_size,
+        "sourceArchiveSHA256": expected_sha,
+        "koronus": source_record(paths["koronus"].name, vector),
+        "koronusResources": source_record(paths["koronusResources"].name, resources),
+        "resourceCount": len(assets),
+        "resourceBytes": sum(map(len, assets.values())),
+    }
+    (out / SOURCE_PROVENANCE_NAME).write_bytes(
+        json.dumps(provenance, sort_keys=True, ensure_ascii=False, indent=2).encode() + b"\n"
+    )
+    names = sorted(("koronus.pmtiles", "koronus-resources.pmtiles", SOURCE_PROVENANCE_NAME))
+    (out / "SHA256SUMS.txt").write_text("".join(
+        sha((out / name).read_bytes()) + "  " + name + "\n" for name in names),
+        encoding="utf-8"
+    )
+    return provenance
+
+
+def verify_staged_source(source_dir, expected_size=SOURCE_BYTES,
+                         expected_sha=SOURCE_SHA, vector_size=VECTOR_SIZE,
+                         vector_sha=VECTOR_SHA):
+    """Validate files uploaded to the public source Release, not private access."""
+    provenance_path = source_dir / SOURCE_PROVENANCE_NAME
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    if (provenance.get("schemaVersion") != 1 or
+            provenance.get("kind") != "icm-koronus-source-pmtiles" or
+            provenance.get("sourceTag") != SOURCE_TAG or
+            provenance.get("sourceCommit") != SOURCE_COMMIT or
+            provenance.get("sourceArchiveBytes") != expected_size or
+            provenance.get("sourceArchiveSHA256") != expected_sha):
+        raise ValueError("Source PMTiles provenance mismatch")
+    source_files = ("koronus.pmtiles", "koronus-resources.pmtiles")
+    data = {}
+    for kind, name in zip(("koronus", "koronusResources"), source_files):
+        descriptor = provenance.get(kind)
+        item = source_dir / name
+        if not item.is_file() or not isinstance(descriptor, dict) or descriptor.get("name") != name:
+            raise ValueError("Missing source PMTiles asset: " + name)
+        raw = item.read_bytes()
+        if len(raw) != descriptor.get("bytes") or sha(raw) != descriptor.get("sha256"):
+            raise ValueError("Source PMTiles checksum mismatch: " + name)
+        data[kind] = raw
+    if len(data["koronus"]) != vector_size or sha(data["koronus"]) != vector_sha:
+        raise ValueError("Vector source changed")
+    if not data["koronus"].startswith(b"PMTiles\x03"):
+        raise ValueError("Vector source PMTiles signature mismatch")
+    metadata = verify_asset_pmtiles(data["koronusResources"])
+    if (metadata.get("sourceRelease") != SOURCE_TAG or
+            metadata.get("sourceArchiveSHA256") != expected_sha or
+            metadata.get("vectorPMTilesSHA256") != vector_sha or
+            provenance.get("resourceCount") != len(metadata["assets"]) or
+            provenance.get("resourceBytes") != sum(e["bytes"] for e in metadata["assets"].values())):
+        raise ValueError("Companion source archive binding mismatch")
+    sums = source_dir / "SHA256SUMS.txt"
+    if sums.exists():
+        expected_sums = "".join(
+            sha((source_dir / name).read_bytes()) + "  " + name + "\n"
+            for name in sorted((*source_files, SOURCE_PROVENANCE_NAME))
+        )
+        if sums.read_text(encoding="utf-8") != expected_sums:
+            raise ValueError("Source release SHA256SUMS mismatch")
+    return data["koronus"], data["koronusResources"], provenance
+
+
+def emit_parts(out, vector, resources, resource_count, resource_bytes,
+               expected_sha=SOURCE_SHA, part_size=PART_SIZE):
+    out.mkdir(parents=True, exist_ok=True)
+    map_info = write_parts(out, "koronus.pmtiles", vector, part_size)
+    res_info = write_parts(out, "koronus-resources.pmtiles", resources, part_size)
+    payload = {
+        "schemaVersion": 1,
+        "packageVersion": "2026.11.22-koronus-downloadable-v1",
+        "sourceRepository": "messireLeonard/interactive-city-map",
+        "sourceTag": SOURCE_TAG,
+        "sourceCommit": SOURCE_COMMIT,
+        "sourceArchiveSha256": expected_sha,
+        "sourcePMTilesRelease": SOURCE_RELEASE_TAG,
+        "role": "external-map-assets",
+        "rawBaseUrl": "https://raw.githubusercontent.com/messireLeonard/moscow_test/assets/koronus-downloadable-v1/hosted-assets/koronus-v1/",
+        "koronus": map_info,
+        "koronusResources": res_info,
+        "resources": {"count": resource_count, "rawBytes": resource_bytes,
+                      "format": "PMTiles v3 binary virtual-tile index"},
+        "requiresICMCompanionLoader": True
+    }
+    (out / "manifest.json").write_bytes(json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, indent=2
+    ).encode() + b"\n")
+    if verify_parts(out, map_info) != vector or verify_parts(out, res_info) != resources:
+        raise ValueError("Chunk reassembly corrupted authoritative PMTiles")
+    names = sorted(p.name for p in out.iterdir()
+                   if p.is_file() and p.name != "SHA256SUMS.txt")
+    (out / "SHA256SUMS.txt").write_text("".join(
+        sha((out / name).read_bytes()) + "  " + name + "\n" for name in names),
+        encoding="utf-8"
+    )
+    return payload
+
+
+def build_from_source_release(source_dir, out, part_size=PART_SIZE, **pin_overrides):
+    """Chicago-style: split already hosted, verified source PMTiles."""
+    vector, resources, provenance = verify_staged_source(source_dir, **pin_overrides)
+    return emit_parts(out, vector, resources, provenance["resourceCount"],
+                      provenance["resourceBytes"],
+                      expected_sha=provenance["sourceArchiveSHA256"], part_size=part_size)
 
 
 def write_parts(output, logical_name, content, part_size):
@@ -286,40 +437,27 @@ def build(source, out, expected_size=SOURCE_BYTES, expected_sha=SOURCE_SHA,
         vector_size=vector_size, vector_sha=vector_sha)
     packed = build_asset_pmtiles(assets, source_sha=expected_sha, vector_sha=vector_sha)
     verify_asset_pmtiles(packed, assets)
-    out.mkdir(parents=True, exist_ok=True)
-    # No large joined binary is hosted. Only sha-pinned independent chunks.
-    map_info = write_parts(out, "koronus.pmtiles", base, part_size)
-    res_info = write_parts(out, "koronus-resources.pmtiles", packed, part_size)
-    payload = {
-        "schemaVersion": 1,
-        "packageVersion": "2026.11.22-koronus-downloadable-v1",
-        "sourceRepository": "messireLeonard/interactive-city-map",
-        "sourceTag": SOURCE_TAG,
-        "sourceCommit": SOURCE_COMMIT,
-        "sourceArchiveSha256": expected_sha,
-        "role": "external-map-assets",
-        "rawBaseUrl": "https://raw.githubusercontent.com/messireLeonard/moscow_test/assets/koronus-downloadable-v1/hosted-assets/koronus-v1/",
-        "koronus": map_info,
-        "koronusResources": res_info,
-        "resources": {"count": len(assets), "rawBytes": sum(map(len, assets.values())),
-                      "format": "PMTiles v3 binary virtual-tile index"},
-        "requiresICMCompanionLoader": True,
-    }
-    (out / "manifest.json").write_bytes(json.dumps(
-        payload, sort_keys=True, ensure_ascii=False, indent=2
-    ).encode() + b"\n")
-    if verify_parts(out, map_info) != base or verify_parts(out, res_info) != packed:
-        raise ValueError("Chunk reassembly corrupted the authoritative bytes")
-    lines = []
-    for filename in sorted(x.name for x in out.iterdir() if x.is_file() and x.name != "SHA256SUMS.txt"):
-        lines.append(sha((out / filename).read_bytes()) + "  " + filename + "\n")
-    (out / "SHA256SUMS.txt").write_text("".join(lines), encoding="utf-8")
-    return payload
+    return emit_parts(out, base, packed, len(assets), sum(map(len, assets.values())),
+                      expected_sha=expected_sha, part_size=part_size)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source_zip", type=Path)
+    parser.add_argument("source_zip", type=Path, nargs="?",
+                        help="Local, SHA-pinned ICM source release ZIP (never uploaded to moscow_test)")
+    parser.add_argument("--source-only", action="store_true",
+                        help="Produce the two PMTiles for manual upload to moscow_test source Release")
+    parser.add_argument("--from-source-release", type=Path,
+                        help="Directory containing the two hosted source PMTiles and provenance")
     parser.add_argument("--out", type=Path, default=Path("dist/koronus-v1"))
     args = parser.parse_args()
-    print(json.dumps(build(args.source_zip, args.out), ensure_ascii=False, indent=2))
+    if args.from_source_release:
+        if args.source_zip or args.source_only:
+            parser.error("--from-source-release is exclusive with source_zip and --source-only")
+        result = build_from_source_release(args.from_source_release, args.out)
+    else:
+        if not args.source_zip:
+            parser.error("source_zip is required unless --from-source-release is used")
+        result = (stage_source(args.source_zip, args.out) if args.source_only else
+                  build(args.source_zip, args.out))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
